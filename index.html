@@ -4536,16 +4536,16 @@ function buildRankupPanelHtml(c){
   const ri = getRankIndex(c.rank||'copper');
 
   // ランクバッジ表示
-  const rankBadge = `<span style="font-family:'JetBrains Mono',monospace;font-weight:900;font-size:.7em;padding:2px 10px;border-radius:10px;background:${rank.glow};color:${rank.color};border:1px solid ${rank.color}55;">${rank.label}</span>`;
+  const rankBadge = ''; // ランクバッジ廃止
 
   // Lv上限
   const lvBar = `<span style="font-size:.65em;color:var(--text2);">Lv上限: <span style="color:${rank.color};font-weight:700;">${rank.maxLv}</span></span>`;
 
-  if(!next) return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">${rankBadge}${lvBar}<span style="font-size:.62em;color:var(--gold);margin-left:auto;">✦ MAX RANK</span></div>`;
+  if(!next) return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">${lvBar}</div>`;
 
   // 次のランクへの必要素材チェック
   const cost = RANKUP_COST[next.id];
-  if(!cost) return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">${rankBadge}${lvBar}</div>`;
+  if(!cost) return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;">${lvBar}</div>`;
 
   const crystalHave = getCrystalCount(role.id, cost.crystalTier);
   const crystalNeed = cost.crystalQty;
@@ -4583,7 +4583,6 @@ function buildRankupPanelHtml(c){
 
   return `<div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:10px 12px;margin-top:6px;">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-      ${rankBadge}
       <span style="font-size:.62em;color:var(--text3);">→</span>
       <span style="font-family:'JetBrains Mono',monospace;font-weight:900;font-size:.7em;padding:2px 10px;border-radius:10px;background:${next.glow};color:${next.color};border:1px solid ${next.color}55;">${next.label}</span>
       ${lvBar}
@@ -4644,7 +4643,7 @@ function confirmRankUp(cid){
       <div style="font-size:1.4em;margin-bottom:8px;">${next.icon||'✨'}</div>
       <div style="font-family:'Outfit',sans-serif;font-weight:900;font-size:.95em;color:${next.color};margin-bottom:6px;">${ch.name}</div>
       <div style="font-size:.75em;color:var(--text2);margin-bottom:16px;">
-        <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:${getRank(ch.rank||'copper').color};">${getRank(ch.rank||'copper').label}</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:${getRank(ch.rank||'copper').color};">${''}
         <span style="margin:0 8px;color:var(--text3);">→</span>
         <span style="font-family:'JetBrains Mono',monospace;font-weight:700;color:${next.color};">${next.label}</span>
       </div>
@@ -4821,7 +4820,7 @@ function mkChar(r, j, name, opts={}){
   const b = calcBase(r, j);
   const id = j.id+'_'+Date.now()+'_'+(Math.random()*9999|0);
   // 個体値ランク（省略時はB=標準）
-  const growRank = opts.growRank || GROWTH_RANKS[2];
+  // growRank 廃止: 成長倍率は固定 1.00
   // 特性（省略時は空）
   const traits = opts.traits || [];
   const c = {
@@ -4834,9 +4833,9 @@ function mkChar(r, j, name, opts={}){
     maxHp:b.hp, hp:b.hp,
     maxMp:0, mp:0,
     pos:j.pos, range:j.range,
-    // 個体値
-    growRankId: growRank.id,
-    growMult:   growRank.mult,
+    // 個体値ランク廃止（全員1.00固定）
+    growRankId: 'B',
+    growMult:   1.00,
     // 特性（配列で2つ）
     traits:  traits,
     trait:   traits[0] || null,  // 後方互換
@@ -6347,6 +6346,8 @@ function startBattle(enemyNames,isBoss){
     if(c._earlyBird){ c.atbGauge=Math.floor(ATB_MAX*c._earlyBird); }
   });
 
+  // 各プレイヤーのスキル装備を初期化（空なら自動設定）
+  G.party.forEach(ch=>{ if(ch.hp>0) initEquippedSkills(ch); });
   G.bs={
     players:[...G.party.filter(c=>c.hp>0)],
     enemies,isBoss,
@@ -6387,7 +6388,18 @@ function stopATBLoop(){
 }
 
 function atbTick(){
-  const bs=G.bs;if(!bs||bs._acting)return;
+  const bs=G.bs;if(!bs)return;
+  // ウォッチドッグ：_actingが3秒以上続いていたら強制解除
+  if(bs._acting){
+    if(!bs._actingStartTime) bs._actingStartTime=Date.now();
+    else if(Date.now()-bs._actingStartTime>3000){
+      console.warn('[Battle] atbTick watchdog: forcing endActing after timeout');
+      bs._actingStartTime=null;
+      endActing();
+    }
+    return;
+  }
+  bs._actingStartTime=null;
   // Check win/loss
   if(bs.enemies.every(e=>e.hp<=0)){stopATBLoop();endBattle(true);return;}
   if(bs.players.every(p=>p.hp<=0)){stopATBLoop();endBattle(false);return;}
@@ -6427,6 +6439,7 @@ function atbTick(){
 function endActing(){
   const bs=G.bs;if(!bs)return;
   bs._acting=false;
+  bs._actingStartTime=null;
   renderATBTimeline();
   renderBattleUnits();
   if(bs.enemies.every(e=>e.hp<=0)){stopATBLoop();endBattle(true);return;}
@@ -6518,14 +6531,16 @@ function autoPlayerTurn(char){
     bs._curSkillUser = char;
     window._curSkillId = sk.id;
     window._curSkillUser = char;
-    if(sk.target==='single'){
-      if(!tgt){endActing();return;}
-      sk.fn(char,tgt,bs);
-    } else if(sk.target==='all_enemy'){
-      sk.fn(char,null,bs);
-    } else {
-      sk.fn(char,tgt||null,bs);
-    }
+    try {
+      if(sk.target==='single'){
+        if(!tgt){endActing();return;}
+        sk.fn(char,tgt,bs);
+      } else if(sk.target==='all_enemy'){
+        sk.fn(char,null,bs);
+      } else {
+        sk.fn(char,tgt||null,bs);
+      }
+    } catch(e){ console.error('Skill error:',sk.id,e); endActing(); return; }
     bs._curSkillId = null;
     bs._curSkillUser = null;
     window._curSkillId = null;
@@ -7648,7 +7663,7 @@ function openGacha10(){
   let hasARank = false;
   for(let i=0;i<10;i++){
     const j = rollGachaJob();
-    const growRank = rollGrowthRank();
+    const growRank = {id:'B',mult:1.00}; // 個体値ランク廃止
     const traits = rollTraits(2);
     const name = rollGachaName(j);
     if(growRank.id==='S') hasSRank=true;
@@ -7757,7 +7772,7 @@ function confirmGacha10(){
     const preRace = _gachaResult._previewRace || null;
   const c = mkChar(null, j, name, {growRank, traits, race: preRace});
     G.roster.push(c);
-    blog(`${name}（${j.name} / 個体値${growRank.id}）がギルドに加わった！`,'ev');
+    blog(`${name}（${j.name}）がギルドに加わった！`,'ev');
   });
   _gacha10Results = null;
   document.querySelectorAll('.gacha10-modal').forEach(m=>m.remove());
@@ -7840,15 +7855,7 @@ function showGachaProbModal(){
     </div>`;
   }).join('');
 
-  const totalGrW = GROWTH_RANKS.reduce((a,r)=>a+r.weight,0);
-  const grRows = GROWTH_RANKS.map(gr=>{
-    const pct = (gr.weight/totalGrW*100).toFixed(1);
-    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
-      <span style="font-family:'JetBrains Mono',monospace;font-size:.8em;font-weight:900;padding:2px 8px;border-radius:8px;background:${gr.glow};color:${gr.color};">${gr.id}</span>
-      <div style="flex:1;font-size:.72em;color:var(--text2);">${gr.desc}（×${gr.mult.toFixed(2)}）</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.75em;font-weight:700;color:var(--gold);min-width:40px;text-align:right;">${pct}%</div>
-    </div>`;
-  }).join('');
+  // 個体値ランク表示廃止
 
   modal.innerHTML = `
     <div style="background:var(--panel);border:1px solid var(--border2);border-radius:14px;width:min(420px,100%);max-height:85vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,.6);">
@@ -7859,8 +7866,6 @@ function showGachaProbModal(){
       <div style="padding:14px 16px;">
         <div style="font-family:'Outfit',sans-serif;font-weight:700;font-size:.72em;color:var(--text2);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;">職業出現率</div>
         ${jobRows}
-        <div style="font-family:'Outfit',sans-serif;font-weight:700;font-size:.72em;color:var(--text2);text-transform:uppercase;letter-spacing:.1em;margin:14px 0 8px;">個体値ランク確率</div>
-        ${grRows}
         <div style="font-size:.65em;color:var(--text2);margin-top:12px;line-height:1.6;">
           ※ 特性は全${TRAIT_POOL.length}種から2つランダム<br>※ 10連でも各結果は独立した抽選です
         </div>
@@ -7912,7 +7917,7 @@ function doGachaRoll(){
   setTimeout(()=>{
     clearInterval(frameTimer);
     const j        = rollGachaJob();
-    const growRank = rollGrowthRank();
+    const growRank = {id:'B',mult:1.00}; // 個体値ランク廃止
     const traits   = rollTraits(2);
     const name     = rollGachaName(j);
     _gachaResult   = {j, growRank, traits, name};
@@ -8090,7 +8095,7 @@ function confirmGachaResult(){
   G.roster.push(c);
   _gachaResult = null;
   S.bell();
-  blog(`${name}（${j.name} / 個体値${growRank.id}）がギルドに加わった！`,'ev');
+  blog(`${name}（${j.name}）がギルドに加わった！`,'ev');
   closeOverlay('ov-hire');
   renderGuild();renderHeader();
   autoSave();
@@ -10138,7 +10143,6 @@ function openCharDetail(cid){
   document.getElementById('cd-title').innerHTML=`
     <div style="display:flex;align-items:center;gap:8px;min-width:0;">
       <span style='vertical-align:middle;font-size:1em;'>${c.name}</span>
-      <span style="font-family:'JetBrains Mono',monospace;font-size:.6em;font-weight:900;padding:2px 7px;border-radius:8px;background:${getRank(c.rank||'copper').glow};color:${getRank(c.rank||'copper').color};border:1px solid ${getRank(c.rank||'copper').color}44;flex-shrink:0;">${getRank(c.rank||'copper').label}</span>
     </div>
     <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
       <div style="display:flex;align-items:center;gap:4px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:3px 8px 3px 3px;">
@@ -10862,7 +10866,7 @@ function renderPartySlots(){
       <div class="slot-pos ${isFront?'f':'b'}">${isFront?'前衛':'後衛'}</div>
       <div class="slot-char">
         <div class="sc-icon" style="display:flex;align-items:center;justify-content:center;">${getJobImg(c.job,36)}</div>
-        <div class="sc-name" style="display:flex;align-items:center;gap:3px;">${c.name}<span style="font-family:'JetBrains Mono',monospace;font-size:.5em;font-weight:900;padding:1px 4px;border-radius:5px;background:${getRank(c.rank||'copper').glow};color:${getRank(c.rank||'copper').color};border:1px solid ${getRank(c.rank||'copper').color}44;">${getRank(c.rank||'copper').label}</span></div>
+        <div class="sc-name" style="display:flex;align-items:center;gap:3px;">${c.name}</div>
         <div class="sc-sub">Lv${c.lv} · ${c.job.name}</div>
         <div class="sc-bars">
           <div class="mini-bar"><div class="mini-bar-fill" style="width:${hpPct}%;background:var(--hp)"></div></div>
@@ -10893,7 +10897,7 @@ function renderRoster(){
         ${getJobImg(c.job,38)}
         ${_eleA?`<div style="position:absolute;bottom:-2px;right:-2px;">${getRaceIcon(c.race,14)}</div>`:''}
       </div>
-      <div class="rc-name" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;">${c.name}<span style="font-family:'JetBrains Mono',monospace;font-size:.52em;font-weight:900;padding:1px 5px;border-radius:6px;background:${getRank(c.rank||'copper').glow};color:${getRank(c.rank||'copper').color};border:1px solid ${getRank(c.rank||'copper').color}44;">${getRank(c.rank||'copper').label}</span></div>
+      <div class="rc-name" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;">${c.name}</div>
       <div class="rc-lv">Lv${c.lv} ${c.job.name}</div>
       <div style="margin-top:3px;display:flex;gap:3px;flex-wrap:wrap;justify-content:center;">
         <span style="font-family:'JetBrains Mono',monospace;font-size:.58em;font-weight:900;padding:1px 5px;border-radius:8px;background:${gr.glow};color:${gr.color};">${gr.id}</span>
@@ -11191,7 +11195,7 @@ function showPartySelectModal(d){
         <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-family:'Outfit',sans-serif;font-weight:700;font-size:.80em;">
           ${ch.name}
           <span style="font-size:.6em;color:${role.color};background:${role.color}20;border-radius:3px;padding:1px 4px;">${role.icon}</span>
-          <span style="font-size:.58em;color:${rankData.color};font-weight:900;">${rankData.icon||''}${rankData.label}</span>
+          
           ${ch.race&&RACES[ch.race]?`<span style="display:inline-flex;align-items:center;gap:2px;padding:1px 4px;border-radius:3px;background:${RACES[ch.race].bg||RACES[ch.race].color+'22'};border:1px solid ${RACES[ch.race].color}88;">${getRaceIcon(ch.race,13)}<span style="font-size:.55em;color:${RACES[ch.race].color};font-weight:700;">${RACES[ch.race].name}</span></span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:5px;margin-top:1px;">
